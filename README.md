@@ -1,69 +1,104 @@
-preciso de um script que receba como parametros:
+# Parâmetros de Linha de Comando para `pv-process.py`
 
--d ./ready/speedup-video.mp4 # nome do arquivo de resultado
+Este documento detalha todos os parâmetros de linha de comando disponíveis para o script `pv-process.py`, suas funções e valores padrão.
 
--m 400 # MIN_SILENCE_LEN_MS = 400
--t -42 # SILENCE_THRESH_DBFS = -42
--p 200 # SPEECH_START_PADDING_MS = 200
+## Sintaxe Geral
 
--k 1500 # MIN_ORIGINAL_SILENT_DURATION_FOR_SPEEDUP_S = 1.5
--v 4 # criar a TIMES_OF_SPEEDUP (taxa de vezes que acelera o video)
+```bash
+pv [OPÇÕES] -s <arquivo_fonte1.mp4> [arquivo_fonte2.mov ...]
+```
 
--j # NAO faz nenhum processamento para segmentacao e aceleracao, apenas une os arquivos de origem
+ou
 
--s ./file-01.mp4 ./dir1/file2.mp4 ./ file-03.mov # um ou mais arquivos de origem
+```bash
+python3 /caminho/completo/para/seu/pv-process.py [OPÇÕES] -s <arquivo_fonte1.mp4> [arquivo_fonte2.mov ...]
+```
 
-entao ele deve executar as acoes para cada um dos arquivos:
+---
 
-dividir em segmentos de acordo com silencio/fala (segment_video_by_audio.py)
-acelere os segmentos sem audio (accelerate_silent_segments.py)
+## Opções / Parâmetros
 
-no final, deve fazer o join de todos os segmentos de todos arquivos de origem em um unico arquivo -d (destino) obedecendo os \_faster existentes
+- **`-d ARQUIVO`, `--destination ARQUIVO`**
 
-unir todos os segmentos de todos os videos na ordem recebida (join_segments.py)
+  - **Descrição:** Especifica o caminho completo e o nome do arquivo para o vídeo final que será gerado após a junção de todos os segmentos processados.
+  - **Tipo:** String (caminho do arquivo)
+  - **Obrigatório:** Não
+  - **Valor Padrão:** Se não fornecido, um nome de arquivo é gerado automaticamente no diretório onde o comando é executado. O formato do nome padrão é `video-join-NUM_ARQUIVOS-DD.MM.YYYY.HH.MM.SS.mp4` (ex: `video-join-02-02.06.2025.15.30.00.mp4` para 2 arquivos de origem processados em 2 de Junho de 2025 às 15:30:00).
 
-deve gravar tambem um arquivo json com o mesmo nome do arquivo -d com extensao json contendo
-todos os dados passados como parametro, o array com os arquivos de origem, cada um dos indexes, caso seja criado um \_faster, o indice dele tambem, com todos os dados iguais aos outros, a data e hora de inicio e final, o tempo de processamento, o tamanho de bytes de cada arquivo e o total de bytes de origem, o total de bytes do resultado, a taxa de conversao, a economia de bytes, e um ultimo array do arquivo de resultado com o indice dele tambem e de todos os segmentos que compuseram, ai so vem os \_speech, \_silent e \_faster que foram utilizados no join.
+- **`-m MS`, `--min-silence-len MS`**
 
-o json tera nesse caso um array com 4 objetos, um pra cada arquivo, e em cada arquivo todos os parametros de video ja presentes no sound_index para cada video, e um array com os segmentos daqueel video, os de origem os segmentos de tempo incluindo os faster, e o de destino com os parametros e um array com os segmentos que compuseram o arquivo destino.
+  - **Descrição:** (Etapa 1: Segmentação de Áudio) Define a duração mínima de um silêncio, em milissegundos (MS), para que a biblioteca Pydub o considere um bloco de silêncio distinto. Valores menores detectam pausas mais curtas como silêncio.
+  - **Tipo:** Inteiro
+  - **Valor Padrão:** `400` (milissegundos)
 
-quero que salve um arquivo txt com resumo da seguinte forma:
+- **`-t DBFS`, `--silence-thresh DBFS`**
 
-START: 01/01/2001 01:02:03
-END : 01/01/2001 01:02:03
-ELAPSED : 01:30:00 ( 630 segundos )
-STATUS : SUCCEED
-SIZE START: 485.7mb (497658952 bytes)
-SIZE END: 254.7mb (231658952 bytes)
-SIZE ECO: 135.8 mb (...)
-TIME START: 00:32:00 ( 630 segundos )
-TIME END: 00:21:00 ( 430 segundos )
-TIME ECO: 00:11:00 (...)
-FRAME START: 134564 frames
-FRAME END: 102548 frames
-FRAME ECO: 35214 frames
-FILE DEST: /dir/vid/ready/speedup-video.mp4
-FILE SRC : /dir/vid/file-01.mp4
-/dir/vid/dir1/file2.mp4
-/dir/vid/file-03.mov
+  - **Descrição:** (Etapa 1: Segmentação de Áudio) Define o limiar de silêncio em dBFS (decibéis relativos à escala cheia) para o Pydub. Áudio abaixo deste nível é considerado silêncio. Valores mais negativos (ex: -50) são mais "sensíveis" e tendem a classificar mais partes como fala (ou seja, o silêncio precisa ser mais "silencioso"). Valores menos negativos (ex: -30) são menos sensíveis (o silêncio pode ser um pouco mais "ruidoso").
+  - **Tipo:** Inteiro
+  - **Valor Padrão:** `-42` (dBFS)
 
-esse comando devo chamar do terminal, por ex:
+- **`-p MS`, `--speech-padding MS`**
 
-pv -d ./ready/speedup-video.mp4 -m 400 -t -42 -p 200 -k 1500 -v 4 -s ./file-01.mp4 ./dir1/file2.mp4 ./ file-03.mov
+  - **Descrição:** (Etapa 1: Segmentação de Áudio) Define a quantidade de preenchimento (ou "folga"), em milissegundos (MS), a ser adicionada _antes_ do início detectado de um segmento de fala. Isso ajuda a garantir que o comecinho da voz não seja cortado. O segmento de silêncio anterior será correspondentemente encurtado.
+  - **Tipo:** Inteiro
+  - **Valor Padrão:** `200` (milissegundos)
 
-esse atalho pv deve ser incluido no ~/.zshrc para chamar o script ou programa
+- **`-k MS`, `--min-silent-speedup-duration MS`**
 
-os scripts utilizados (segment_video_by_audio.py) (accelerate_silent_segments.py)(join_segments.py)
-terao seus nomes modificados para
+  - **Descrição:** (Etapa 2: Aceleração de Silêncios) Define a duração mínima original (em milissegundos) que um segmento de silêncio (identificado na Etapa 1) precisa ter para que a Etapa 2 tente acelerá-lo. Segmentos de silêncio mais curtos que este valor não serão acelerados e serão usados na junção com sua duração e velocidade originais.
+  - **Tipo:** Inteiro
+  - **Valor Padrão:** `1500` (milissegundos, ou seja, 1.5 segundos)
 
-pv-process(.py|.sh)
-pv-step-01-audio-segment.py
-pv-step-02-silent-accelerator.py
-pv-step-03-segment-join.py
+- **`-v N`, `--speedup-factor N`**
 
-e nao precisam estar no diretorio que faz a chamada, pois irei copiar os arquivos que quero processar e unir no finder e colar apos o comando no console no dir que quero o aruivo de resultado
+  - **Descrição:** (Etapa 2: Aceleração de Silêncios) Define o fator de aceleração para os segmentos de silêncio que atendem ao critério de duração mínima (parâmetro `-k`). Por exemplo, um valor `4` significa que o trecho de silêncio será 4x mais rápido.
+  - **Tipo:** Inteiro
+  - **Valor Padrão:** `4`
 
-se algum parametro nao for informado, os indicados devem ser utilizados
-se nenhum arquivo de destino for indicado grava como video-join-03-01.01.2001.01.02.03.mp4 para tres arquivos conforme o exemplo
+- **`-j`, `--join-only`**
 
-acredito que os scripts serao reformulados para receber os parametros, preciso de indicacoes de como fazer para salvar os scripts completos, onde colocar para estarem disponiveis para o script principal que sera encurtado como pv ou proc-video ou fast-video conforme eu resolver o nome do alias apontando para o pv-process.py
+  - **Descrição:** Ativa o modo "apenas junção". Quando esta flag está presente, o script assume que os arquivos fornecidos através da opção `-s` já são os segmentos finais e prontos para serem concatenados. As etapas de segmentação por áudio (Etapa 1) e aceleração de silêncios (Etapa 2) são completamente puladas. Útil se você já processou os segmentos e quer apenas juntá-los ou rejuntá-los.
+  - **Tipo:** Flag (não recebe valor; sua presença ativa o modo)
+
+- **`-s ARQUIVO [ARQUIVO ...]`, `--source-files ARQUIVO [ARQUIVO ...]`**
+
+  - **Descrição:** Especifica um ou mais caminhos para os arquivos de vídeo de origem que serão processados. Se a flag `-j` (join-only) estiver ativa, estes são os arquivos de segmento que serão diretamente concatenados na ordem fornecida.
+  - **Tipo:** Lista de Strings (caminhos de arquivo)
+  - **Obrigatório:** Sim
+
+- **`--keep-temp-dirs`**
+
+  - **Descrição:** Se esta flag for fornecida, os diretórios temporários criados durante o processamento (que contêm os segmentos individuais de cada arquivo de origem, vídeos recodificados para keyframes, etc.) não serão apagados automaticamente no final da execução. Isso pode ser útil para depuração ou para inspecionar os arquivos intermediários.
+  - **Tipo:** Flag
+
+- **`--no-kf-re-encode-prompt`**
+  - **Descrição:** Desativa o prompt interativo na Etapa 1 (segmentação de áudio) que pergunta ao usuário se deseja re-codificar um vídeo de origem caso ele seja detectado como tendo poucos keyframes. Se esta flag for usada e um vídeo tiver poucos keyframes, o script continuará o processamento usando os keyframes existentes (o que pode não ser ideal para a estratégia de corte sem re-codificação dos segmentos, resultando em poucos ou apenas um segmento para aquele vídeo).
+  - **Tipo:** Flag
+
+---
+
+Passos manuais para executar os tres passos do projeto:
+
+Segmentar videos de acord com o audio
+
+```
+
+python3 ./partial-scripts/segment_video_by_audio.py video-teste.mov
+
+```
+
+Acelerar as partes em silencio
+
+```
+
+python3 ./partial-scripts/accelerate_silent_segments.py
+
+```
+
+Unir os segmentos em um unico video
+
+```
+
+python3 ./partial-scripts/join_segments.py
+
+```

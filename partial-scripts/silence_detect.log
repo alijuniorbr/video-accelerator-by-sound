@@ -1,0 +1,69 @@
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'video-teste-unfrag.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2mp41
+    encoder         : Lavf61.7.100
+  Duration: 00:01:57.68, start: 0.000000, bitrate: 2710 kb/s
+  Stream #0:0[0x1](und): Video: hevc (Main) (hvc1 / 0x31637668), yuv420p(tv, bt709), 1920x1080, 2506 kb/s, 60 fps, 60 tbr, 15360 tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 192 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+Stream mapping:
+  Stream #0:0 -> #0:0 (hevc (native) -> wrapped_avframe (native))
+  Stream #0:1 -> #0:1 (aac (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+Output #0, null, to '/dev/null':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2mp41
+    encoder         : Lavf61.7.100
+  Stream #0:0(und): Video: wrapped_avframe, yuv420p(tv, bt709, progressive), 1920x1080, q=2-31, 200 kb/s, 60 fps, 60 tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 wrapped_avframe
+  Stream #0:1(und): Audio: pcm_s16le, 48000 Hz, stereo, s16, 1536 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 pcm_s16le
+[silencedetect @ 0x600000068600] silence_start: 0
+[silencedetect @ 0x600000068600] silence_end: 4.014292 | silence_duration: 4.014292
+[silencedetect @ 0x600000068600] silence_start: 8.942771
+[silencedetect @ 0x600000068600] silence_end: 9.518479 | silence_duration: 0.575708
+[silencedetect @ 0x600000068600] silence_start: 11.073062
+[silencedetect @ 0x600000068600] silence_end: 18.048417 | silence_duration: 6.975354
+[silencedetect @ 0x600000068600] silence_start: 20.177833
+[silencedetect @ 0x600000068600] silence_end: 21.134438 | silence_duration: 0.956604
+[silencedetect @ 0x600000068600] silence_start: 28.003937
+[silencedetect @ 0x600000068600] silence_end: 35.240292 | silence_duration: 7.236354
+[silencedetect @ 0x600000068600] silence_start: 37.065812
+[silencedetect @ 0x600000068600] silence_end: 49.111937 | silence_duration: 12.046125
+[silencedetect @ 0x600000068600] silence_start: 50.883792
+[silencedetect @ 0x600000068600] silence_end: 52.353125 | silence_duration: 1.469333
+[silencedetect @ 0x600000068600] silence_start: 53.280625
+[silencedetect @ 0x600000068600] silence_end: 54.906813 | silence_duration: 1.626187
+[silencedetect @ 0x600000068600] silence_start: 55.770083
+[silencedetect @ 0x600000068600] silence_end: 62.246479 | silence_duration: 6.476396
+[silencedetect @ 0x600000068600] silence_start: 63.016458
+[silencedetect @ 0x600000068600] silence_end: 66.021021 | silence_duration: 3.004563
+[silencedetect @ 0x600000068600] silence_start: 67.00125
+[silencedetect @ 0x600000068600] silence_end: 70.566229 | silence_duration: 3.564979
+[silencedetect @ 0x600000068600] silence_start: 73.672562
+[silencedetect @ 0x600000068600] silence_end: 84.456396 | silence_duration: 10.783833
+[silencedetect @ 0x600000068600] silence_start: 85.833771
+[silencedetect @ 0x600000068600] silence_end: 89.08775 | silence_duration: 3.253979
+[silencedetect @ 0x600000068600] silence_start: 90.144312
+[silencedetect @ 0x600000068600] silence_end: 97.034646 | silence_duration: 6.890333
+[silencedetect @ 0x600000068600] silence_start: 99.177417
+[silencedetect @ 0x600000068600] silence_end: 113.720396 | silence_duration: 14.542979
+[silencedetect @ 0x600000068600] silence_start: 114.781542
+[silencedetect @ 0x600000068600] silence_end: 117.652 | silence_duration: 2.870458
+[out#0/null @ 0x600001168180] video:3034KiB audio:22060KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame= 7061 fps=1868 q=-0.0 Lsize=N/A time=00:01:57.65 bitrate=N/A speed=31.1x    

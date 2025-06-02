@@ -1,0 +1,8 @@
+__pycache__
+venv
+*.mov
+*.mp4
+.DS_Store
+audio_segments
+pv_temp*
+video-join*

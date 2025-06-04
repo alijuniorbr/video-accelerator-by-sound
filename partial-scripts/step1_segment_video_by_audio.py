@@ -8,8 +8,8 @@ from pydub import AudioSegment
 from pydub.silence import detect_silence
 
 # Parâmetros Configuráveis no Topo da Função Principal ou como Constantes
-MIN_SILENCE_LEN_MS = 400       # Duração mínima para um silêncio ser considerado um "bloco"
-SILENCE_THRESH_DBFS = -42      # Limiar de silêncio. Mais negativo = mais sensível à fala.
+MIN_SILENCE_LEN_MS = 2000      # Duração mínima para um silêncio ser considerado um "bloco"
+SILENCE_THRESH_DBFS = -35      # Limiar de silêncio. Mais negativo = mais sensível à fala.
 SPEECH_START_PADDING_MS = 200  # Quanto antes um segmento de FALA deve começar (ms)
 
 def create_segments_final_attempt(video_path, output_dir="audio_segments", json_file_name="sound_index.json"):

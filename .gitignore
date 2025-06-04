@@ -6,3 +6,4 @@ venv
 audio_segments
 pv_temp*
 video-join*
+pv_env

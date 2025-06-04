@@ -8,7 +8,8 @@ import sys
 
 def accelerate_silent_segments(segments_dir, index_json_path, 
                                min_original_silent_duration_s, 
-                               speedup_factor):
+                               speedup_factor,
+                               video_fps):
     """
     Processa os segmentos de vídeo marcados como "silent" no arquivo JSON:
     - Acelera o vídeo pelo speedup_factor.
@@ -75,9 +76,13 @@ def accelerate_silent_segments(segments_dir, index_json_path,
                 '-f', 'lavfi',
                 '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
                 '-vf', f'setpts={pts_factor:.3f}*PTS', 
-                '-map', '0:v:0', '-map', '1:a:0',
-                '-c:v', 'libx264', '-preset', 'ultrafast',
-                '-c:a', 'aac', '-b:a', '16k',
+                '-map', '0:v:0', 
+                '-map', '1:a:0',
+                 '-r', str(video_fps), 
+                '-c:v', 'libx264', 
+                '-preset', 'ultrafast',
+                '-c:a', 'aac', 
+                '-b:a', '16k',
                 '-shortest', output_filepath
             ]
             
@@ -119,6 +124,8 @@ if __name__ == "__main__":
 
     MIN_DURATION_S_TEST = 1.5 
     SPEEDUP_FACTOR_TEST = 4
+    FPS_TEST = 60.0
+
 
     if not os.path.isdir(test_segments_dir) or not os.path.isfile(test_json_path):
         print(f"Erro: Diretório '{test_segments_dir}' ou arquivo '{test_json_path}' não encontrado.")
@@ -129,7 +136,8 @@ if __name__ == "__main__":
         segments_dir=test_segments_dir,
         index_json_path=test_json_path,
         min_original_silent_duration_s=MIN_DURATION_S_TEST,
-        speedup_factor=SPEEDUP_FACTOR_TEST
+        speedup_factor=SPEEDUP_FACTOR_TEST,
+        video_fps=FPS_TEST
     )
     print(f"Resumo do teste: {summary}")
     print("--- Teste de pv_step_02_silent_accelerator.py Concluído ---")

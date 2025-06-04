@@ -17,18 +17,18 @@ Siga estes passos uma vez para preparar seu ambiente:
 É altamente recomendável usar um ambiente virtual para isolar as dependências deste projeto.
 
 - Navegue no terminal até a pasta onde você salvou os scripts Python (ex: `~/scripts/pv_ferramenta`).
-- Crie o ambiente virtual (vamos chamá-lo de `pv_env` aqui, mas pode ser qualquer nome como `venv`):
+- Crie o ambiente virtual (vamos chamá-lo de `venv` aqui, mas pode ser qualquer nome como `pv_env`):
   ```bash
-  python3 -m venv pv_env
+  python3 -m venv venv
   ```
 
 **2. Ative o Ambiente Virtual:**
 
-- Para ativar (no mesmo terminal ou em um novo, na pasta do projeto):
+- Para ativar (no mesmo terminal ou em um novo, na pasta do projeto, ou apos o reinicio):
   ```bash
-  source pv_env/bin/activate
+  source venv/bin/activate
   ```
-- Seu prompt do terminal deve mudar, mostrando algo como `(pv_env)` no início, indicando que o ambiente virtual está ativo.
+- Seu prompt do terminal deve mudar, mostrando algo como `(venv)` no início, indicando que o ambiente virtual está ativo.
 
 **3. Instale as Dependências Python:**
 
@@ -65,32 +65,35 @@ Como mencionei, vou listar os comandos para você incluir na seção de "Configu
     cd /caminho/para/sua/pasta_do_projeto
     ```
 
-2.  **Crie o ambiente virtual (ex: `pv_env`):**
+2.  **Crie o ambiente virtual (ex: `venv`):**
 
     ```bash
-    python3 -m venv pv_env
+    python3 -m venv venv
     ```
 
 3.  **Ative o ambiente virtual:**
 
-    - Para macOS/Linux (Zsh, Bash):
-      ```bash
-      source pv_env/bin/activate
-      ```
-    - Para Windows (Command Prompt):
-      ```cmd
-      pv_env\Scripts\activate.bat
-      ```
-    - Para Windows (PowerShell):
-      `powershell
-.\pv_env\Scripts\Activate.ps1
-`
-      (Seu prompt do terminal mudará para indicar que o venv está ativo, ex: `(pv_env) ...$`)
+        - Para macOS/Linux (Zsh, Bash):
+          ```bash
+          source venv/bin/activate
+          ```
+        - Para Windows (Command Prompt):
+          ```cmd
+          venv\Scripts\activate.bat
+          ```
+        - Para Windows (PowerShell):
+          `powershell
+
+    .\venv\Scripts\Activate.ps1
+    `      (Seu prompt do terminal mudará para indicar que o venv está ativo, ex:`(venv) ...$`)
 
 4.  **Instale as dependências (com o venv ativo):**
 
+A ultima versao do moviepy na ocasia da criacao desse documento nao incluia o moviepy.editor, dessa forma precisamos fixar a versao para uma que inclui o moviepy.editor
+
     ```bash
-    pip install moviepy pydub
+    pip install pydub
+    pip install moviepy==1.0.3 # versao com o moviepy.editor
     ```
 
 5.  **Para desativar o ambiente virtual (quando terminar de usar):**

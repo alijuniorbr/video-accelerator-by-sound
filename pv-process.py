@@ -172,12 +172,28 @@ def main():
                 
                 # Etapa 2: Acelerar Segmentos Silenciosos
                 print(f"\n  Etapa 2: Acelerando silêncios para '{source_file_basename}'...")
+
+                # Exemplo de como pegar o FPS do vídeo que foi efetivamente segmentado:
+                fps_para_aceleracao = 60.0 # Default
+                if source_file_log_entry.get("kf_re_encode_details") and \
+                   source_file_log_entry["kf_re_encode_details"].get("status") == "Sucesso" and \
+                   source_file_log_entry["kf_re_encode_details"].get("new_fps"):
+                    fps_para_aceleracao = source_file_log_entry["kf_re_encode_details"]["new_fps"]
+                elif source_file_log_entry.get("original_video_info"):
+                    fps_para_aceleracao = source_file_log_entry["original_video_info"]["fps"]
+                
+                if not fps_para_aceleracao or fps_para_aceleracao <=0: # Fallback final
+                    print(f"AVISO: FPS para aceleração não pôde ser determinado para {source_file_basename}, usando 30.0.")
+                    fps_para_aceleracao = 60.0
+
                 acceleration_summary_s2 = step2.accelerate_silent_segments(
                     segments_dir=current_source_segment_dir,
-                    index_json_path=index_json_path_s1, # Usa o JSON da Etapa 1
+                    index_json_path=index_json_path_s1, 
                     min_original_silent_duration_s=args.min_silent_speedup_duration / 1000.0,
-                    speedup_factor=args.speedup_factor
+                    speedup_factor=args.speedup_factor,
+                    video_fps=fps_para_aceleracao 
                 )
+
                 source_file_log_entry["acceleration_summary"] = acceleration_summary_s2
                 
                 # Coleta de segmentos para junção final (considerando _faster.mp4)

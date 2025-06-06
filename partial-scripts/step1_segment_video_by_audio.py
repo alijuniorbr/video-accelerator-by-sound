@@ -181,9 +181,9 @@ def create_segments_final_attempt(video_path, output_dir="audio_segments", json_
             # Calcula o tempo de início do fade-out para que ele termine exatamente no fim do segmento
             fade_out_start_time = duration_of_segment_s - fade_duration_s
             
-            audio_filter_string = f"afade=type=in:start_time=0:duration={fade_duration_s},afade=type=out:start_time={fade_out_start_time:.3f}:duration={fade_duration_s}"
-            ffmpeg_command.extend(['-af', audio_filter_string])
-            print(f"    Aplicando fade in/out de {fade_duration_s}s.")
+            # audio_filter_string = f"afade=type=in:start_time=0:duration={fade_duration_s},afade=type=out:start_time={fade_out_start_time:.3f}:duration={fade_duration_s}"
+            # ffmpeg_command.extend(['-af', audio_filter_string])
+            print(f"    CANCELADO - Aplicando fade in/out de {fade_duration_s}s.")
         else:
             print(f"    Segmento muito curto ({duration_of_segment_s:.3f}s) para fades completos. Nenhum fade aplicado.")
         

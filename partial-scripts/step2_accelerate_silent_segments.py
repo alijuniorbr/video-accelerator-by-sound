@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 # NOVO: Limite mínimo de duração para que um segmento silencioso seja acelerado
-MIN_ORIGINAL_SILENT_DURATION_FOR_SPEEDUP_S = 1.5  # Em segundos (ex: 1.5s). Ajuste conforme necessário.
+MIN_ORIGINAL_SILENT_DURATION_FOR_SPEEDUP_S = 3.0  # Em segundos (ex: 1.5s). Ajuste conforme necessário.
 
 def accelerate_silent_clips(segments_dir="audio_segments", index_file_name="sound_index.json", video_fps=60):
     full_index_path = os.path.join(segments_dir, index_file_name)

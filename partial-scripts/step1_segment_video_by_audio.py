@@ -1,271 +1,264 @@
+# pv_step_01_audio_segment.py
 import os
 import json
 import sys
 import math
 import subprocess
-from moviepy.editor import VideoFileClip
+import bisect
 from pydub import AudioSegment
 from pydub.silence import detect_silence
 
-# Parâmetros Configuráveis no Topo da Função Principal ou como Constantes
-MIN_SILENCE_LEN_MS = 2000      # Duração mínima para um silêncio ser considerado um "bloco"
-SILENCE_THRESH_DBFS = -35      # Limiar de silêncio. Mais negativo = mais sensível à fala.
-SPEECH_START_PADDING_MS = 200  # Quanto antes um segmento de FALA deve começar (ms)
+# Importa as funções auxiliares
+try:
+    import pv_utils
+except ImportError:
+    print("ERRO: pv_utils.py não encontrado.")
+    sys.exit(1)
 
-def create_segments_final_attempt(video_path, output_dir="audio_segments", json_file_name="sound_index.json"):
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    full_json_path = os.path.join(output_dir, json_file_name)
+def extract_audio_direct_ffmpeg(video_path, temp_audio_path):
+    """Usa uma chamada FFmpeg direta para extrair áudio, pode ser mais eficiente."""
+    print(f"Extraindo áudio para '{os.path.basename(temp_audio_path)}' com FFmpeg direto...")
+    command = [
+        'ffmpeg', '-y',
+        '-i', video_path,
+        '-vn', # Sem vídeo
+        '-acodec', 'pcm_s16le', # Formato WAV não comprimido
+        '-ar', '48000', # Taxa de amostragem
+        '-ac', '2',     # Canais (estéreo)
+        temp_audio_path
+    ]
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        return AudioSegment.from_wav(temp_audio_path)
+    except subprocess.CalledProcessError as e:
+        print(f"Erro FFmpeg ao extrair áudio: {e.stderr}")
+        raise
+    except Exception as e:
+        print(f"Erro ao carregar áudio WAV com Pydub: {e}")
+        raise
 
-    print(f"Segmentos (re-codificados) serão salvos em: '{os.path.abspath(output_dir)}'")
-    print(f"Índice JSON será salvo como: '{os.path.abspath(full_json_path)}'")
+def segment_video(video_path_param, 
+                  output_dir, 
+                  json_file_name_in_output_dir, 
+                  min_silence_len_ms, 
+                  silence_thresh_dbfs, 
+                  speech_start_padding_ms,
+                  # Novos parâmetros para controle
+                  processing_mode='recode', # 'recode' ou 'fast'
+                  apply_fade=False,
+                  prompt_user_for_kf_re_encode=True):
+    """
+    Função principal para segmentar um vídeo com modo selecionável.
+    - mode='recode': Re-codifica cada segmento, permite filtros (fades). Mais lento, mais compatível.
+    - mode='fast': Tenta cortar sem re-codificação (-codec copy), baseado em keyframes. Rápido, mas depende de keyframes no vídeo fonte.
+    """
+    
+    os.makedirs(output_dir, exist_ok=True) 
+    output_json_path = os.path.join(output_dir, json_file_name_in_output_dir)
+    print(f"--- Iniciando Etapa 1: Segmentação para '{os.path.basename(video_path_param)}' ---")
+    print(f"   Modo de Processamento: '{processing_mode.upper()}'" + (" com Fades de Áudio" if apply_fade and processing_mode == 'recode' else ""))
+    print(f"   Segmentos e índice serão salvos em: '{os.path.abspath(output_dir)}'")
+
+    current_video_to_process = video_path_param
+    kf_re_encode_details = None
 
     try:
-        video_clip_obj = VideoFileClip(video_path)
-        fps = video_clip_obj.fps
-        duration_s = video_clip_obj.duration
-        duration_ms = int(duration_s * 1000)
-        print(f"Vídeo carregado: {os.path.basename(video_path)}, Duração: {duration_s:.2f}s, FPS: {fps:.2f}")
+        video_info = pv_utils.get_extended_video_info(current_video_to_process)
+        if video_info.get("error"): raise ValueError(f"Falha ao obter info: {video_info['error']}")
+        duration_s, fps = video_info["duration_s"], video_info["fps"]
+        if not all([duration_s, fps]): raise ValueError("Duração ou FPS inválidos.")
     except Exception as e:
-        print(f"Erro ao carregar o vídeo com MoviePy: {e}"); return
+        print(f"Falha crítica ao obter informações: {e}"); return None, None, None, None
 
-    temp_audio_path_for_pydub = "temp_full_audio_for_pydub.wav"
+    # Lógica de Keyframe (relevante para o modo 'fast' ou se o usuário for questionado)
+    keyframes_s = []
+    if processing_mode == 'fast':
+        try:
+            keyframes_s = pv_utils.get_video_keyframes(current_video_to_process)
+            num_kfs = len(keyframes_s) if keyframes_s else 0
+            avg_interval = duration_s / num_kfs if num_kfs > 0 else float('inf')
+            is_sparse_kf = (avg_interval > 3.0) or (num_kfs <= 5 and duration_s > 10.0)
+
+            if is_sparse_kf and prompt_user_for_kf_re_encode:
+                print("-" * 50)
+                print(f"ATENÇÃO: Modo 'fast' (-c copy) selecionado, mas o vídeo tem poucos keyframes (1 a cada {avg_interval:.1f}s).")
+                print("Para o modo 'fast' funcionar bem, keyframes frequentes são necessários.")
+                print("Recomenda-se (r)ecodificar o vídeo inteiro primeiro ou usar o modo de processamento 'recode'.")
+                print("-" * 50)
+                # (Lógica do prompt para re-codificar aqui, como na versão anterior, se desejado)
+                # ...
+                # Se recodificar, atualiza current_video_to_process, duration_s, fps, e re-mapeia keyframes_s
+                # Para simplificar, vamos apenas avisar. A re-codificação interativa fica no pv-process.py
+        except Exception as e:
+            print(f"Aviso: Falha ao analisar keyframes para o modo 'fast': {e}. O resultado pode ser inesperado.")
+    
+    # Extração de Áudio e Análise Pydub
+    temp_audio_path = os.path.join(output_dir, f"temp_audio_{os.path.splitext(os.path.basename(current_video_to_process))[0]}.wav")
     try:
-        print("Extraindo áudio completo para análise com Pydub...")
-        video_clip_obj.audio.write_audiofile(temp_audio_path_for_pydub, codec='pcm_s16le', logger=None)
-        full_audio_segment = AudioSegment.from_wav(temp_audio_path_for_pydub)
-        print("Áudio completo extraído com sucesso.")
+        full_audio_segment = extract_audio_direct_ffmpeg(current_video_to_process, temp_audio_path)
     except Exception as e:
-        print(f"Erro ao extrair ou carregar áudio completo para Pydub: {e}")
-        if os.path.exists(temp_audio_path_for_pydub): os.remove(temp_audio_path_for_pydub)
-        video_clip_obj.close(); return
+        print(f"Erro ao extrair áudio: {e}"); return None, None, None, None
     finally:
-        if os.path.exists(temp_audio_path_for_pydub): os.remove(temp_audio_path_for_pydub)
+        if os.path.exists(temp_audio_path): os.remove(temp_audio_path)
 
-    print(f"Detectando silêncio (min_len: {MIN_SILENCE_LEN_MS}ms, threshold: {SILENCE_THRESH_DBFS}dBFS)...")
-    silent_chunks_ms = detect_silence(
-        full_audio_segment,
-        min_silence_len=MIN_SILENCE_LEN_MS,
-        silence_thresh=SILENCE_THRESH_DBFS,
-        seek_step=1 # seek_step padrão
-    )
+    # ... (Lógica para gerar, preencher e ajustar `segments_props` como antes) ...
+    # (Vou colar a lógica de padding que já funcionou para você)
+    silent_chunks_ms = detect_silence(full_audio_segment, min_silence_len_ms, silence_thresh_dbfs, 1)
     print(f"Detectados {len(silent_chunks_ms)} trechos de silêncio (análise de áudio).")
-
-    # 1. Gerar lista inicial de segmentos contíguos (sem padding ainda)
-    initial_segments_props = []
+    initial_audio_segments = []
     current_time_ms = 0
+    duration_ms = int(duration_s * 1000)
     if duration_ms > 0:
-        if not silent_chunks_ms:
-            initial_segments_props.append({"start_ms": 0, "end_ms": duration_ms, "type": "speech"})
+        if not silent_chunks_ms: initial_audio_segments.append({"start_ms": 0, "end_ms": duration_ms, "type": "speech"})
         else:
             for silent_start, silent_end in silent_chunks_ms:
-                if silent_start > current_time_ms:
-                    initial_segments_props.append({"start_ms": current_time_ms, "end_ms": silent_start, "type": "speech"})
-                if silent_end > silent_start:
-                    initial_segments_props.append({"start_ms": silent_start, "end_ms": silent_end, "type": "silent"})
+                if silent_start > current_time_ms: initial_audio_segments.append({"start_ms": current_time_ms, "end_ms": silent_start, "type": "speech"})
+                if silent_end > silent_start: initial_audio_segments.append({"start_ms": silent_start, "end_ms": silent_end, "type": "silent"})
                 current_time_ms = silent_end
-            if current_time_ms < duration_ms:
-                initial_segments_props.append({"start_ms": current_time_ms, "end_ms": duration_ms, "type": "speech"})
-        
-        initial_segments_props = [s for s in initial_segments_props if s["end_ms"] > s["start_ms"]]
-        if not initial_segments_props and duration_ms > 0:
-             initial_segments_props.append({"start_ms": 0, "end_ms": duration_ms, "type": "speech"})
-    print(f"Gerados {len(initial_segments_props)} segmentos iniciais baseados em áudio.")
+            if current_time_ms < duration_ms: initial_audio_segments.append({"start_ms": current_time_ms, "end_ms": duration_ms, "type": "speech"})
+        initial_audio_segments = [s for s in initial_audio_segments if s["end_ms"] > s["start_ms"]]
+        if not initial_audio_segments : initial_audio_segments.append({"start_ms": 0, "end_ms": duration_ms, "type": "speech"})
+    
+    # Aplicar padding
+    padded_segments = []
+    if initial_audio_segments:
+        # Primeiro segmento
+        first_seg = initial_audio_segments[0].copy(); s_start, s_end, s_type = first_seg['start_ms'], first_seg['end_ms'], first_seg['type']
+        if s_type == "speech": s_start = max(0, s_start - speech_start_padding_ms)
+        if s_end > s_start: padded_segments.append({"start_ms": s_start, "end_ms": s_end, "type": s_type})
+        # Segmentos restantes
+        for i in range(1, len(initial_audio_segments)):
+            current_s_info = initial_audio_segments[i].copy(); s_start_orig, s_end_curr, s_type_curr = current_s_info['start_ms'], current_s_info['end_ms'], current_s_info['type']
+            prev_padded_seg = padded_segments[-1] if padded_segments else None
+            current_s_start_final = s_start_orig
+            if s_type_curr == "speech":
+                current_s_start_final = max(0, s_start_orig - speech_start_padding_ms)
+                if prev_padded_seg and prev_padded_seg['type'] == 'silent': prev_padded_seg['end_ms'] = max(prev_padded_seg['start_ms'], current_s_start_final)
+            elif prev_padded_seg: current_s_start_final = prev_padded_seg['end_ms']
+            if s_end_curr > current_s_start_final:
+                if prev_padded_seg and prev_padded_seg['end_ms'] <= prev_padded_seg['start_ms']:
+                    if padded_segments and segments_with_padding[-1] is prev_padded_seg: padded_segments.pop()
+                padded_segments.append({"start_ms": current_s_start_final, "end_ms": s_end_curr, "type": s_type_curr})
+        # Atribui audio_chunk e filtra novamente
+        audio_based_segments_props_final = []
+        last_segment_end_ms = 0
+        for seg in padded_segments:
+            start_ms = max(last_segment_end_ms, seg['start_ms'])
+            end_ms = seg['end_ms']
+            if end_ms > start_ms:
+                audio_chunk = full_audio_segment[max(0, min(start_ms, duration_ms)):max(0, min(end_ms, duration_ms))]
+                audio_based_segments_props_final.append({"start_ms": start_ms, "end_ms": end_ms, "type": seg['type'], "audio_chunk": audio_chunk})
+                last_segment_end_ms = end_ms
+        segments_props = audio_based_segments_props_final
+    else: segments_props = []
+    print(f"Gerados {len(segments_props)} segmentos de áudio com padding.")
+    # Fim da lógica de preparação de segmentos
 
-    # 2. Aplicar padding ao início dos segmentos de fala, ajustando o final dos silêncios anteriores
-    segments_with_padding = []
-    if initial_segments_props:
-        # Adiciona o primeiro segmento, aplicando padding se for fala
-        first_seg = initial_segments_props[0]
-        s_start = first_seg['start_ms']
-        s_end = first_seg['end_ms']
-        s_type = first_seg['type']
-        if s_type == "speech":
-            s_start = max(0, s_start - SPEECH_START_PADDING_MS)
-        if s_end > s_start:
-            segments_with_padding.append({"start_ms": s_start, "end_ms": s_end, "type": s_type})
+    # -----------------------------------------------------------------------------------
+    # Loop de criação de vídeos
+    sound_index_data_content = []
+    actual_segment_index = 0
+    final_segments_to_process = segments_props # Renomeado para clareza
 
-        # Itera sobre os segmentos restantes para ajustar o início da fala e o fim do silêncio anterior
-        for i in range(1, len(initial_segments_props)):
-            current_seg_info = initial_segments_props[i]
-            s_start = current_seg_info['start_ms']
-            s_end = current_seg_info['end_ms']
-            s_type = current_seg_info['type']
-
-            prev_processed_seg = segments_with_padding[-1]
-
-            if s_type == "speech":
-                adjusted_s_start = max(0, s_start - SPEECH_START_PADDING_MS)
-                # Ajusta o fim do segmento anterior (que deve ser silêncio)
-                if prev_processed_seg['type'] == 'silent':
-                    prev_processed_seg['end_ms'] = max(prev_processed_seg['start_ms'], adjusted_s_start)
-                s_start = adjusted_s_start
-            else: # current_seg é silêncio
-                # O início do silêncio é o fim do segmento de fala anterior (que já foi adicionado)
-                s_start = prev_processed_seg['end_ms']
-            
-            if s_end > s_start: # Adiciona o segmento atual se ainda tiver duração
-                segments_with_padding.append({"start_ms": s_start, "end_ms": s_end, "type": s_type})
-        
-        # Refiltrar para remover segmentos que ficaram com duração zero/negativa e garantir contiguidade
-        final_segments_props = []
-        last_end_time = 0
-        for seg_info in segments_with_padding:
-            start_ms = max(last_end_time, seg_info['start_ms']) # Garante contiguidade
-            end_ms = seg_info['end_ms']
-            
-            if end_ms > start_ms: # Apenas se tiver duração positiva
-                final_segments_props.append({
-                    "start_ms": start_ms,
-                    "end_ms": end_ms,
-                    "type": seg_info['type'],
-                    "audio_chunk": full_audio_segment[start_ms : end_ms] # Fatia o áudio com os tempos finais
-                })
-                last_end_time = end_ms
-        segments_props = final_segments_props
-    else:
-        segments_props = []
-    print(f"Gerados {len(segments_props)} segmentos com padding aplicado e contiguidade verificada.")
-
-    min_segment_duration_ms_val = (1000 / fps) if fps > 0 else 16 
-    final_segments_to_process = []
-    if segments_props:
-        for s_info in segments_props:
-            if (s_info["end_ms"] - s_info["start_ms"]) >= min_segment_duration_ms_val:
-                final_segments_to_process.append(s_info)
-    segments_props = final_segments_to_process
-    print(f"Total de segmentos finais a serem processados com FFmpeg: {len(segments_props)}")
-
-    sound_index_data = []
-    actual_segment_index = 0 
-
-    for seg_prop_index, seg_info in enumerate(segments_props):
-        start_ms = seg_info["start_ms"]
-        end_ms = seg_info["end_ms"]
-        segment_type = seg_info["type"]
+    for seg_prop_index, seg_info in enumerate(final_segments_to_process):
+        start_ms, end_ms, segment_type = seg_info["start_ms"], seg_info["end_ms"], seg_info["type"]
         pydub_audio_chunk = seg_info["audio_chunk"]
 
-        start_time_s = start_ms / 1000.0
-        actual_end_time_s = min(end_ms / 1000.0, duration_s)
-        duration_of_segment_s = actual_end_time_s - start_time_s
+        # Se modo for 'fast', ajusta para keyframes
+        if processing_mode == 'fast':
+            start_time_s = pv_utils.find_kf_before_or_at(start_ms / 1000.0, keyframes_s)
+            end_time_s = pv_utils.find_kf_after_or_at(end_ms / 1000.0, keyframes_s, duration_s)
+        else: # modo 'recode'
+            start_time_s = start_ms / 1000.0
+            end_time_s = min(end_ms / 1000.0, duration_s)
 
-        if duration_of_segment_s < (min_segment_duration_ms_val / 2000.0) : 
-            print(f"  Pulando segmento {seg_prop_index+1}/{len(segments_props)} com duração desprezível para FFmpeg: {duration_of_segment_s:.3f}s.")
-            continue
+        duration_of_segment_s = end_time_s - start_time_s
+        if duration_of_segment_s <= 0.001: continue
         
         filename = f"{actual_segment_index:06d}_{segment_type}.mp4"
         output_path = os.path.join(output_dir, filename)
-
-        print(f"Processando segmento {seg_prop_index+1}/{len(segments_props)}: {filename} ({duration_of_segment_s:.3f}s)")
+        print(f"  Processando seg {seg_prop_index+1}/{len(final_segments_to_process)}: {filename} ({duration_of_segment_s:.3f}s)")
         
-        ffmpeg_command = [
-            'ffmpeg', '-y', 
-            '-i', video_path,
-            '-ss', str(start_time_s),
-            '-t', str(duration_of_segment_s),
-            '-map', '0:v:0?', 
-            '-map', '0:a:0?', 
-            '-c:v', 'libx264',      
-            '-preset', 'ultrafast', 
-            '-force_key_frames', "expr:eq(n,0)", 
-            '-c:a', 'aac',          
-            '-b:a', '192k',
-            '-ar', '48000',
-            '-ac', '2',
-            output_path
-        ]
+        # Monta o comando FFmpeg com base no modo escolhido
+        ffmpeg_command = ['ffmpeg', '-y']
+        if processing_mode == 'fast':
+            ffmpeg_command.extend(['-ss', str(start_time_s), '-i', current_video_to_process,
+                                   '-t', str(duration_of_segment_s), '-codec', 'copy', 
+                                   '-avoid_negative_ts', 'make_zero'])
+        else: # 'recode'
+            ffmpeg_command.extend(['-i', current_video_to_process, '-ss', str(start_time_s),
+                                   '-t', str(duration_of_segment_s),
+                                   '-map', '0:v:0?', '-map', '0:a:0?', 
+                                   '-c:v', 'libx264', '-preset', 'ultrafast',
+                                   '-force_key_frames', "expr:eq(n,0)", 
+                                   '-c:a', 'aac', '-b:a', '192k',
+                                   '-ar', '48000', '-ac', '2'])
+            if apply_fade:
+                fade_duration_s = 0.02
+                if duration_of_segment_s > (2 * fade_duration_s) + 0.001:
+                    fade_out_start = duration_of_segment_s - fade_duration_s
+                    audio_filter = f"afade=t=in:st=0:d={fade_duration_s},afade=t=out:st={fade_out_start:.3f}:d={fade_duration_s}"
+                    ffmpeg_command.extend(['-af', audio_filter])
 
-        # Adicionar filtro de áudio fade para suavizar transições
-        fade_duration_s = 0.12 # 120 milissegundos. Você pode tentar 0.01 (10ms) ou 0.03 (30ms) se necessário.
-        if duration_of_segment_s > (2 * fade_duration_s) + 0.001: # Garante espaço para fade in e out
-            # Calcula o tempo de início do fade-out para que ele termine exatamente no fim do segmento
-            fade_out_start_time = duration_of_segment_s - fade_duration_s
-            
-            # audio_filter_string = f"afade=type=in:start_time=0:duration={fade_duration_s},afade=type=out:start_time={fade_out_start_time:.3f}:duration={fade_duration_s}"
-            # ffmpeg_command.extend(['-af', audio_filter_string])
-            print(f"    CANCELADO - Aplicando fade in/out de {fade_duration_s}s.")
-        else:
-            print(f"    Segmento muito curto ({duration_of_segment_s:.3f}s) para fades completos. Nenhum fade aplicado.")
+        ffmpeg_command.append(output_path)
         
+        # Execução e tratamento de erro (como antes)
         try:
-            result = subprocess.run(ffmpeg_command,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, check=False)
-
-            print(f"--- Iniciando saída FFmpeg para {filename} ---")
-            if result.stdout: print("FFmpeg STDOUT:\n" + result.stdout.strip())
-            if result.stderr: print("FFmpeg STDERR:\n" + result.stderr.strip()) # FFmpeg usa stderr para logs
-            print(f"--- Fim da saída FFmpeg para {filename} (código de retorno: {result.returncode}) ---")
-
+            result = subprocess.run(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
             if result.returncode == 0:
-                print(f"  Segmento {filename} parece ter sido criado com sucesso.")
-                frame_start = math.floor(start_time_s * fps)
-                frame_end = math.floor(actual_end_time_s * fps) -1 
-                if frame_end < frame_start:
-                    if actual_end_time_s > start_time_s: frame_end = frame_start
-                    elif frame_start == 0 and (actual_end_time_s * fps < 1 if fps > 0 else True) : frame_end = 0
-                
-                db_avg_val = pydub_audio_chunk.dBFS if pydub_audio_chunk.duration_seconds > 0.001 else -999.0
-                db_peak_val = pydub_audio_chunk.max_dBFS if pydub_audio_chunk.duration_seconds > 0.001 else -999.0
-                
+                # ... (cálculo de metadata e append em sound_index_data_content)
                 metadata = {
                     "index": actual_segment_index, "file": filename,
-                    "frame_start": frame_start, "frame_end": frame_end,
-                    "time_start": round(start_time_s, 3), "time_end": round(actual_end_time_s, 3),
+                    "frame_start": math.floor(start_time_s * fps), "frame_end": math.floor(end_time_s * fps) -1,
+                    "time_start": round(start_time_s, 3), "time_end": round(end_time_s, 3),
                     "fps": round(float(fps), 2),
-                    "db_min": f"{db_avg_val:.1f}", "db_max": f"{db_peak_val:.1f}",
-                    "result": segment_type
+                    "db_min": f"{pydub_audio_chunk.dBFS if pydub_audio_chunk.duration_seconds > 0.001 else -999.0:.1f}", 
+                    "db_max": f"{pydub_audio_chunk.max_dBFS if pydub_audio_chunk.duration_seconds > 0.001 else -999.0:.1f}",
+                    "result": segment_type,
+                    "processing_mode": processing_mode
                 }
-                sound_index_data.append(metadata)
+                sound_index_data_content.append(metadata)
                 actual_segment_index += 1
             else:
-                print(f"!! FFmpeg FALHOU para {filename}. O segmento pode não ter sido criado ou está corrompido.")
-        except FileNotFoundError:
-            print(f"!! ERRO CRÍTICO: 'ffmpeg' não encontrado. Instale-o e adicione ao PATH.")
-            video_clip_obj.close(); return 
+                print(f"  !! Erro FFmpeg para {filename}: {result.stderr[:500]}...")
         except Exception as e:
-            print(f"!! Erro de subprocesso com FFmpeg para {filename}: {e}")
+            print(f"  !! Erro subprocesso com FFmpeg para {filename}: {e}")
 
-    video_clip_obj.close()
-
+    # ... (Fecha video_clip_obj_final, escreve JSON e retorna)
+    video_clip_obj_final.close()
     try:
-        with open(full_json_path, 'w') as f: json.dump(sound_index_data, f, indent=2)
-        print(f"\nSucesso! Processados {len(segments_props)} segmentos propostos, criados {len(sound_index_data)} arquivos em '{os.path.abspath(output_dir)}'.")
-        print(f"Índice salvo em '{os.path.abspath(full_json_path)}'.")
+        with open(output_json_path, 'w') as f: json.dump(sound_index_data_content, f, indent=2)
+        print(f"Etapa 1 concluída. Índice salvo em '{output_json_path}'.")
     except Exception as e:
-        print(f"Erro ao escrever JSON '{full_json_path}': {e}")
-    return sound_index_data
+        print(f"Erro ao escrever JSON '{output_json_path}': {e}")
+        return current_video_to_process, None, None, None
 
-def main():
-    if len(sys.argv) < 2:
-        print("Uso: python nome_do_script.py <caminho_para_o_video>")
-        return
-    video_file = sys.argv[1]
-    if not os.path.isfile(video_file):
-        print(f"Erro: Vídeo '{video_file}' não encontrado.")
-        return
+    return current_video_to_process, output_json_path, None, sound_index_data_content
 
-    output_segment_dir = "audio_segments" 
-    json_filename = "sound_index.json" 
-    
-    if os.path.exists(output_segment_dir) and any(os.scandir(output_segment_dir)):
-        while True:
-            user_clear = input(f"Diretório de saída '{output_segment_dir}' já existe e contém arquivos. Limpar? (s/n): ").strip().lower()
-            if user_clear in ['s', 'n']: break
-            print("Opção inválida.")
-        if user_clear == 's':
-            print(f"Limpando diretório de saída: {output_segment_dir}...")
-            for item in os.listdir(output_segment_dir):
-                item_path = os.path.join(output_segment_dir, item)
-                try:
-                    if os.path.isfile(item_path) or os.path.islink(item_path): os.unlink(item_path)
-                except Exception as e: print(f"  Não foi possível remover {item_path}: {e}")
-            print(f"Diretório limpo.")
-        else:
-            print("Continuando sem limpar o diretório. Arquivos podem ser sobrescritos.")
-            
-    # Chama a função com os parâmetros configuráveis no topo do script
-    create_segments_final_attempt(video_file, output_segment_dir, json_filename)
 
 if __name__ == "__main__":
-    main()
+    # Bloco de teste direto
+    # Exemplo: python pv_step_01_audio_segment.py recode video.mov --fade
+    parser = argparse.ArgumentParser(description="Teste direto do script de segmentação.")
+    parser.add_argument("mode", choices=['recode', 'fast'], help="Modo de processamento: 'recode' ou 'fast' (baseado em keyframes).")
+    parser.add_argument("video_path", help="Caminho para o vídeo de teste.")
+    parser.add_argument("--fade", action='store_true', help="Aplicar fades de áudio (apenas no modo 'recode').")
+    args_test = parser.parse_args()
+
+    test_output_dir = os.path.splitext(os.path.basename(args_test.video_path))[0] + f"_s1_test_{args_test.mode}"
+    if os.path.exists(test_output_dir):
+        print(f"Limpando dir de teste: {test_output_dir}...")
+        shutil.rmtree(test_output_dir)
+    os.makedirs(test_output_dir)
+
+    segment_video(
+        video_path_param=args_test.video_path,
+        output_dir=test_output_dir,
+        json_file_name_in_output_dir="sound_index_test.json",
+        min_silence_len_ms=2000,
+        silence_thresh_dbfs=-35,
+        speech_start_padding_ms=200,
+        processing_mode=args_test.mode,
+        apply_fade=args_test.fade,
+        prompt_user_for_kf_re_encode=True
+    )

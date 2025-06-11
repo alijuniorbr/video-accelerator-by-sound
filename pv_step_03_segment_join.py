@@ -2,90 +2,55 @@
 import os
 import subprocess
 import sys
-import tempfile # Para criar o filelist.txt em um local temporário seguro
+import tempfile
 
-def join_segments_from_list(list_of_absolute_segment_filepaths, 
-                            final_output_filepath, 
-                            segments_dir_for_filelist="."): # <--- VERIFIQUE ESTE TERCEIRO PARÂMETRO
+def join_segments_from_list(list_of_absolute_segment_filepaths, final_output_filepath):
     """
     Junta uma lista de arquivos de segmento (caminhos absolutos) em um único 
     arquivo de saída usando FFmpeg concat demuxer.
-    O filelist.txt é criado no segments_dir_for_filelist.
     Retorna True se bem-sucedido, False caso contrário.
     """
     if not list_of_absolute_segment_filepaths:
         print("  ETAPA 3 ERRO: Nenhuma lista de arquivos de segmento fornecida para junção.")
         return False
 
-    # Usa um arquivo temporário nomeado para a lista de arquivos do FFmpeg
-    temp_file_list_descriptor, temp_file_list_path = tempfile.mkstemp(text=True, suffix='.txt', prefix='ffmpeg_concat_list_')
-    
-    # Usa o diretório do arquivo de saída para o arquivo de lista temporário se segments_dir_for_filelist for "."
-    # Isso é mais para o caso de teste direto. No pv-process.py, passamos um diretório específico.
-    effective_file_list_dir = segments_dir_for_filelist
-    if segments_dir_for_filelist == ".":
-        effective_file_list_dir = os.path.dirname(final_output_filepath) # Coloca perto do output
-        os.makedirs(effective_file_list_dir, exist_ok=True)
-
-    # Recria o temp_file_list_path no diretório efetivo, se necessário
-    # A maneira como tempfile.mkstemp funciona já cria o arquivo. Vamos usá-lo como está.
-    # Se você quiser controlar o diretório do tempfile.mkstemp:
-    # temp_file_list_descriptor, temp_file_list_path = tempfile.mkstemp(dir=effective_file_list_dir, text=True, suffix='.txt', prefix='ffmpeg_concat_list_')
-
-
+    temp_file_descriptor, temp_file_list_path = tempfile.mkstemp(text=True, suffix='.txt', prefix='ffmpeg_concat_list_')
     print(f"--- Iniciando Etapa 3: Junção de {len(list_of_absolute_segment_filepaths)} Segmentos ---")
     print(f"  Usando arquivo de lista temporário: {temp_file_list_path}")
     print(f"  Arquivo de saída final: {final_output_filepath}")
     
     try:
-        with os.fdopen(temp_file_list_descriptor, 'w') as fl: # Abre o descritor de arquivo como um objeto de arquivo
+        with os.fdopen(temp_file_descriptor, 'w', encoding='utf-8') as fl:
             for seg_path in list_of_absolute_segment_filepaths:
-                # Escreve caminhos absolutos no filelist, o que é mais seguro.
-                # Aspas simples são boas se os caminhos puderem ter espaços.
-                fl.write(f"file '{seg_path.replace(os.sep, '/')}'\n") # Garante barras / para FFmpeg
+                clean_path = seg_path.replace("\\", "/").replace("'", "'\\''")
+                fl.write(f"file '{clean_path}'\n") 
         
         ffmpeg_command = [
             'ffmpeg', '-y',
-            '-f', 'concat',
-            '-safe', '0',            
-            '-i', temp_file_list_path, # Usa o arquivo de lista temporário
-            '-c:v', 'copy',          
-            '-c:a', 'aac',           
-            '-b:a', '192k',          
+            '-f', 'concat', '-safe', '0',            
+            '-i', temp_file_list_path,
+            '-c:v', 'copy',         # Copia o stream de vídeo
+            '-c:a', 'aac',          # Re-codifica o stream de áudio
+            '-b:a', '192k',         # Bitrate do áudio
             final_output_filepath
         ]
         
-        print(f"  Executando FFmpeg para junção: {' '.join(ffmpeg_command)}")
-        # Não precisa de cwd aqui, pois filelist.txt agora usa caminhos absolutos ou caminhos que o FFmpeg entenda
-        result = subprocess.run(ffmpeg_command,
-                                stdout=subprocess.PIPE, 
-                                stderr=subprocess.PIPE,
-                                text=True, check=False)
-
-        print(f"  --- Iniciando saída FFmpeg para junção ({os.path.basename(final_output_filepath)}) ---")
-        if result.stdout: print("  FFmpeg STDOUT:\n" + result.stdout.strip())
-        if result.stderr: print("  FFmpeg STDERR:\n" + result.stderr.strip())
-        print(f"  --- Fim da saída FFmpeg (código de retorno: {result.returncode}) ---")
+        print(f"  Executando FFmpeg para junção...")
+        result = subprocess.run(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
 
         if result.returncode == 0:
             print(f"  Junção concluída com sucesso: '{final_output_filepath}'")
             return True
         else:
-            print(f"  !! Erro Etapa 3 ao juntar segmentos com FFmpeg (código: {result.returncode}).")
+            print(f"  !! Erro Etapa 3 ao juntar segmentos com FFmpeg.")
+            print(f"     STDERR: {result.stderr.strip()}")
             return False
 
-    except FileNotFoundError:
-        print("!! ERRO CRÍTICO Etapa 3: 'ffmpeg' não encontrado."); return False
     except Exception as e:
         print(f"!! Erro Etapa 3 inesperado durante a junção: {e}"); return False
     finally:
         if os.path.exists(temp_file_list_path):
-            try:
-                os.remove(temp_file_list_path)
-                # print(f"  Arquivo de lista temporário '{temp_file_list_path}' removido.")
-            except Exception as e_rem:
-                print(f"  Aviso: não foi possível remover o arquivo de lista temporário '{temp_file_list_path}': {e_rem}")
-
+            os.remove(temp_file_list_path)
 
 # Bloco para testar este script individualmente
 if __name__ == "__main__":

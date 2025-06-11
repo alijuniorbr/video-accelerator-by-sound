@@ -42,7 +42,7 @@ def main():
     parser.add_argument("-k", "--min-silent-speedup-duration", type=int, default=1500, help="Duração mínima do silêncio (ms) para acelerar.")
     parser.add_argument("-v", "--speedup-factor", type=int, default=4, help="Fator de aceleração.")
     parser.add_argument("--fade", action='store_true', help="Aplicar fades de áudio nos segmentos (apenas no modo 'recode').")
-    parser.add_argument("--mode", choices=['recode', 'fast'], default='recode', help="Modo de processamento para a Etapa 1: 'recode' (lento, permite fades) ou 'fast' (rápido, baseado em keyframes).")
+    # parser.add_argument("--mode", choices=['recode', 'fast'], default='recode', help="Modo de processamento para a Etapa 1: 'recode' (lento, permite fades) ou 'fast' (rápido, baseado em keyframes).")
     parser.add_argument("-j", "--join-only", action="store_true", help="Modo apenas junção.")
     parser.add_argument("-s", "--source-files", nargs='+', required=True, help="Um ou mais arquivos de origem.")
     parser.add_argument("--keep-temp-dirs", action="store_true", help="Não apaga diretórios temporários.")
@@ -128,7 +128,8 @@ def main():
                     video_path_param=video_chunk_path, output_dir=current_chunk_segment_dir,
                     json_file_name_in_output_dir="sound_index.json", min_silence_len_ms=args.min_silence_len,
                     silence_thresh_dbfs=args.silence_thresh, speech_start_padding_ms=args.speech_padding,
-                    processing_mode=args.mode, apply_fade=args.fade
+                    # processing_mode=args.mode, 
+                    apply_fade=args.fade
                 )
                 if not json_path_s1: raise Exception("Falha na Etapa 1 (segmentação).")
 

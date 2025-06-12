@@ -18,7 +18,7 @@ except ImportError:
 
 def segment_video(video_path_param, 
                   output_dir, 
-                  json_file_name_in_output_dir, 
+                  json_file_name, 
                   min_silence_len_ms, 
                   silence_thresh_dbfs, 
                   speech_start_padding_ms,
@@ -30,7 +30,7 @@ def segment_video(video_path_param,
     """
     
     os.makedirs(output_dir, exist_ok=True) 
-    output_json_path = os.path.join(output_dir, json_file_name_in_output_dir)
+    output_json_path = os.path.join(output_dir, json_file_name)
     print(f"--- Iniciando Etapa 1: Segmentação para '{os.path.basename(video_path_param)}' ---")
     print(f"   Padding Fala: {speech_start_padding_ms}ms (início), {speech_end_padding_ms}ms (fim)")
 

@@ -4,7 +4,8 @@ import json
 import subprocess
 import sys
 
-# Não precisa de pv_utils.py diretamente, pois as durações vêm do JSON da etapa 1.
+# Este script agora não precisa de pv_utils.py, pois as informações necessárias (duração, fps)
+# vêm do JSON gerado pela Etapa 1 ou são passadas como parâmetros.
 
 def accelerate_silent_segments(segments_dir, index_json_path, 
                                min_original_silent_duration_s, 
@@ -12,14 +13,15 @@ def accelerate_silent_segments(segments_dir, index_json_path,
                                video_fps):
     """
     Processa os segmentos de vídeo marcados como "silent" no arquivo JSON:
+    - Verifica se a versão acelerada já existe antes de criar.
     - Acelera o vídeo pelo speedup_factor.
     - Adiciona uma trilha de áudio silenciosa.
     - Salva como "_faster.mp4".
     Retorna um dicionário com contagens e um mapa dos arquivos criados.
-    ex: {"processed_count": N, "skipped_count": M, "created_files_map": {orig_name: faster_path}}
     """
     
-    result_summary = {"processed_count": 0, "skipped_count": 0, "created_files_map": {}}
+    # Inicializa o dicionário de resumo com o novo contador
+    result_summary = {"processed_count": 0, "skipped_count": 0, "already_exists_count": 0, "created_files_map": {}}
 
     if not os.path.isdir(segments_dir):
         print(f"  ETAPA 2 ERRO: Diretório de segmentos '{segments_dir}' não encontrado.")
@@ -39,8 +41,9 @@ def accelerate_silent_segments(segments_dir, index_json_path,
         print("  ETAPA 2: Nenhum segmento no índice para processar.")
         return result_summary
 
-    print(f"--- Iniciando Etapa 2: Aceleração de Segmentos Silenciosos de '{os.path.dirname(index_json_path)}' ---")
-    print(f"  Procurando por segmentos 'silent' >= {min_original_silent_duration_s:.2f}s para acelerar por {speedup_factor}x.")
+    print(f"--- Iniciando Etapa 2: Aceleração de Segmentos Silenciosos ---")
+    print(f"  Verificando {len(segment_data_list)} segmentos do índice: {os.path.basename(index_json_path)}")
+    print(f"  Acelerando por {speedup_factor}x os segmentos 'silent' com duração >= {min_original_silent_duration_s:.2f}s.")
     
     for segment_info in segment_data_list:
         if segment_info.get("result") == "silent":
@@ -54,19 +57,31 @@ def accelerate_silent_segments(segments_dir, index_json_path,
                 print(f"  Aviso Etapa 2: Arquivo '{input_filepath}' não encontrado. Pulando.")
                 continue
 
+            # Calcula a duração do segmento silencioso original a partir do JSON
             time_start = segment_info.get("time_start", 0.0)
             time_end = segment_info.get("time_end", 0.0)
             original_duration_s = time_end - time_start
 
+            # Pula se for muito curto para acelerar
             if original_duration_s < min_original_silent_duration_s:
-                print(f"  Segmento silencioso '{original_filename}' (duração: {original_duration_s:.3f}s) muito curto. Não será acelerado.")
+                # print(f"  Segmento silencioso '{original_filename}' (duração: {original_duration_s:.3f}s) muito curto. Não será acelerado.")
                 result_summary["skipped_count"] += 1
                 continue
             
+            # Constrói o nome do arquivo de saída e verifica se ele já existe
             base_name_part = original_filename.split('_')[0]
             output_filename = f"{base_name_part}_faster.mp4"
             output_filepath = os.path.join(segments_dir, output_filename)
 
+            # === LÓGICA DE VERIFICAÇÃO PARA RETOMADA DO PROCESSO ===
+            if os.path.isfile(output_filepath):
+                print(f"  Segmento acelerado '{output_filename}' já existe. Pulando criação.")
+                result_summary["already_exists_count"] += 1
+                # Adiciona ao mapa mesmo assim, para que o processo principal saiba que ele existe
+                result_summary["created_files_map"][original_filename] = output_filepath
+                continue
+            # ========================================================
+            
             print(f"  Processando '{original_filename}' -> '{output_filename}'")
 
             pts_factor = 1.0 / speedup_factor
@@ -78,37 +93,34 @@ def accelerate_silent_segments(segments_dir, index_json_path,
                 '-vf', f'setpts={pts_factor:.3f}*PTS', 
                 '-map', '0:v:0', 
                 '-map', '1:a:0',
-                 '-r', str(video_fps), 
+                '-r', str(video_fps), # Força o FPS de saída para consistência
                 '-c:v', 'libx264', 
                 '-preset', 'ultrafast',
                 '-c:a', 'aac', 
-                '-b:a', '16k',
-                '-shortest', output_filepath
+                '-b:a', '16k',      # Bitrate baixo para áudio silencioso
+                '-shortest',        # Termina com o stream mais curto (o vídeo)
+                output_filepath
             ]
             
             try:
                 ff_result = subprocess.run(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
                 
-                # Descomente para logs FFmpeg completos para esta etapa
-                # print(f"    --- Saída FFmpeg para {output_filename} ---")
-                # if ff_result.stdout: print("    FFmpeg STDOUT:\n" + ff_result.stdout.strip())
-                # if ff_result.stderr: print("    FFmpeg STDERR:\n" + ff_result.stderr.strip())
-                # print(f"    --- Fim da saída FFmpeg (código: {ff_result.returncode}) ---")
-
                 if ff_result.returncode == 0:
-                    # print(f"    Segmento '{output_filename}' acelerado com sucesso.")
                     result_summary["created_files_map"][original_filename] = output_filepath
                     result_summary["processed_count"] += 1
                 else:
                     print(f"  !! Erro Etapa 2 ao processar '{original_filename}' com FFmpeg (código: {ff_result.returncode}).")
-                    if ff_result.stderr: print(f"     Stderr: {ff_result.stderr[:300]}...")
+                    if ff_result.stderr: print(f"     Stderr: {ff_result.stderr[:400]}...") # Mostra parte do erro
             
             except FileNotFoundError:
                 print("!! ERRO CRÍTICO Etapa 2: 'ffmpeg' não encontrado."); return result_summary
             except Exception as e:
                 print(f"!! Erro Etapa 2 inesperado ao processar '{original_filename}': {e}")
         
-    print(f"--- Etapa 2 Concluída: {result_summary['processed_count']} segmentos silenciosos acelerados. {result_summary['skipped_count']} pulados (curtos demais). ---")
+    print(f"--- Etapa 2 Concluída ---")
+    print(f"  {result_summary['processed_count']} segmentos silenciosos foram criados/acelerados.")
+    print(f"  {result_summary['already_exists_count']} segmentos acelerados já existiam e foram pulados.")
+    print(f"  {result_summary['skipped_count']} segmentos silenciosos eram curtos demais e foram ignorados.")
     return result_summary
 
 
@@ -124,8 +136,15 @@ if __name__ == "__main__":
 
     MIN_DURATION_S_TEST = 1.5 
     SPEEDUP_FACTOR_TEST = 4
-    FPS_TEST = 60.0
-
+    # Para teste, precisamos do FPS. Vamos tentar pegar do primeiro segmento no JSON.
+    FPS_TEST = 60.0 # Default de segurança
+    try:
+        with open(test_json_path, 'r') as f_test:
+            test_data = json.load(f_test)
+            if test_data and 'fps' in test_data[0]:
+                FPS_TEST = test_data[0]['fps']
+    except Exception as e:
+        print(f"Aviso: Não foi possível ler o FPS do JSON de teste, usando {FPS_TEST} como padrão. Erro: {e}")
 
     if not os.path.isdir(test_segments_dir) or not os.path.isfile(test_json_path):
         print(f"Erro: Diretório '{test_segments_dir}' ou arquivo '{test_json_path}' não encontrado.")

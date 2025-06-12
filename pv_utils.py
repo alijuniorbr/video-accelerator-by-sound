@@ -3,7 +3,7 @@ import os
 import json
 import subprocess
 import bisect
-from moviepy.editor import VideoFileClip # Para fallback de info, se ffprobe falhar
+from moviepy.editor import VideoFileClip # Usado como fallback se ffprobe falhar
 
 def get_extended_video_info(video_path):
     """
@@ -15,7 +15,7 @@ def get_extended_video_info(video_path):
     if not os.path.isfile(video_path):
         return {
             "filepath": video_path, "exists": False, "size_bytes": 0, 
-            "duration_s": 0, "fps": 0, "total_frames": 0, 
+            "duration_s": 0.0, "fps": 0.0, "total_frames": 0, 
             "video_stream_info": None, "audio_stream_info": None, "error": "Arquivo não encontrado"
         }
 
@@ -53,7 +53,7 @@ def get_extended_video_info(video_path):
                                 current_fps = num / den
                                 vs_info += f", FPS: {current_fps:.2f}"
                                 if info["fps"] == 0.0: info["fps"] = current_fps # Pega o FPS do primeiro stream de vídeo
-                        except (ValueError, ZeroDivisionError): pass # Ignora se r_frame_rate for inválido
+                        except (ValueError, ZeroDivisionError): pass
                     
                     if 'nb_frames' in stream and stream['nb_frames'] != 'N/A':
                         try: 
@@ -68,12 +68,11 @@ def get_extended_video_info(video_path):
                     audio_stream_details.append(as_info)
             
             if not video_stream_details: info["error"] = (info["error"] or "") + "Nenhum stream de vídeo encontrado. "
-            if not audio_stream_details: info["audio_stream_info"] = "Nenhum stream de áudio encontrado" # Não é um erro fatal
+            if not audio_stream_details: info["audio_stream_info"] = "Nenhum stream de áudio encontrado"
             
             info["video_stream_info"] = "; ".join(video_stream_details) if video_stream_details else "N/A"
             info["audio_stream_info"] = "; ".join(audio_stream_details) if audio_stream_details else "N/A"
 
-            # Estima total_frames se não foi encontrado diretamente mas temos duração e fps
             if info["total_frames"] == 0 and info["fps"] > 0 and info["duration_s"] > 0:
                 info["total_frames"] = int(info["duration_s"] * info["fps"])
 
@@ -87,12 +86,12 @@ def get_extended_video_info(video_path):
         info["error"] = f"Erro inesperado ao obter informações do vídeo: {str(e_gen)}"
     
     # Fallback para MoviePy se ffprobe falhou em obter dados essenciais
-    if info["duration_s"] == 0.0 or info["fps"] == 0.0:
+    if (info["duration_s"] == 0.0 or info["fps"] == 0.0) and os.path.isfile(video_path):
         if info["error"]: print(f"  Aviso (ffprobe): {info['error']}. Tentando MoviePy para duration/fps...")
         try:
             clip = VideoFileClip(video_path)
-            info["duration_s"] = clip.duration if clip.duration is not None else 0.0
-            info["fps"] = clip.fps if clip.fps is not None else 0.0
+            if info["duration_s"] == 0.0: info["duration_s"] = clip.duration if clip.duration is not None else 0.0
+            if info["fps"] == 0.0: info["fps"] = clip.fps if clip.fps is not None else 0.0
             if info["total_frames"] == 0 and info["fps"] > 0 and info["duration_s"] > 0:
                  info["total_frames"] = int(info["duration_s"] * info["fps"])
             clip.close()
@@ -120,12 +119,12 @@ def get_video_keyframes(video_path_kf):
             for frame_info in data['frames']:
                 if int(frame_info.get('key_frame', 0)) == 1 and 'pkt_pts_time' in frame_info:
                     try: keyframes.append(float(frame_info['pkt_pts_time']))
-                    except (ValueError, TypeError): pass # Ignora timestamps inválidos
+                    except (ValueError, TypeError): pass
         
         keyframes = sorted(list(set(kf for kf in keyframes if kf >= 0)))
         if not keyframes or (keyframes and keyframes[0] > 0.01 and 0.0 not in keyframes):
-            bisect.insort(keyframes, 0.0) # Adiciona 0.0 se não estiver presente e for relevante
-        if not keyframes: keyframes = [0.0] # Garante que não está vazia
+            bisect.insort(keyframes, 0.0)
+        if not keyframes: keyframes = [0.0]
 
         print(f"Encontrados {len(keyframes)} keyframes. Primeiro: {keyframes[0]:.3f}s, Último: {keyframes[-1]:.3f}s" if keyframes else "Nenhum keyframe.")
         return keyframes
@@ -155,44 +154,34 @@ def find_kf_after_or_at(target_time, kf_list_sorted, video_duration_s_ref):
 
 
 def re_encode_video_for_keyframes(input_video_path, output_video_path, keyframe_interval_s=1.0):
-    """Recodifica o vídeo para forçar keyframes mais frequentes.
-    Retorna (True, re_encode_details_dict) em sucesso, ou (False, re_encode_details_dict) em falha.
-    """
+    """Recodifica o vídeo para forçar keyframes mais frequentes."""
     print("-" * 50)
     print(f"Iniciando re-codificação de '{os.path.basename(input_video_path)}' para adicionar keyframes...")
     print(f"Novo arquivo será salvo como: '{os.path.basename(output_video_path)}'")
     print("Este processo pode demorar bastante. Por favor, aguarde.")
     print("-" * 50)
     
-    re_encode_details = {
-        "re_encoded_path": output_video_path, 
-        "original_path": input_video_path, 
-        "status": "Falhou",
-        "new_duration_s": 0, "new_fps": 0, "new_size_bytes": 0
-    }
+    re_encode_details = { "re_encoded_path": output_video_path, "original_path": input_video_path, "status": "Falhou", "new_duration_s": 0, "new_fps": 0, "new_size_bytes": 0 }
     
     gop_size_str = ""
     try:
-        _ , fps_for_gop = get_video_info_ffprobe(input_video_path) # Usa a função unificada
+        _ , fps_for_gop = get_video_info_ffprobe(input_video_path)
         if fps_for_gop and fps_for_gop > 0:
             gop_size = max(1, int(round(fps_for_gop * keyframe_interval_s)))
             gop_size_str = str(gop_size)
             print(f"  Usando FPS: {fps_for_gop:.2f}, Intervalo KF: {keyframe_interval_s}s => GOP size (parâmetro -g): {gop_size}")
     except Exception as e:
         print(f"  Aviso: Não foi possível obter FPS para calcular GOP size ótimo: {e}")
-        print(f"  Usando -force_key_frames a cada {keyframe_interval_s}s como alternativa.")
 
-    # Garante que o diretório de saída para o vídeo recodificado exista
     os.makedirs(os.path.dirname(output_video_path), exist_ok=True)
-
     re_encode_command = [
         'ffmpeg', '-y', '-i', input_video_path,
-        '-c:v', 'libx264', '-preset', 'medium', # 'medium' é um bom equilíbrio
+        '-c:v', 'libx264', '-preset', 'medium', 
         '-c:a', 'aac', '-b:a', '192k',
     ]
     if gop_size_str:
         re_encode_command.extend(['-g', gop_size_str])
-    else: # Fallback
+    else:
         re_encode_command.extend(['-force_key_frames', f"expr:gte(t,n_forced*{keyframe_interval_s})"])
     re_encode_command.append(output_video_path)
     
@@ -202,11 +191,9 @@ def re_encode_video_for_keyframes(input_video_path, output_video_path, keyframe_
         if result.returncode == 0:
             print("Re-codificação concluída com sucesso!")
             re_encode_details["status"] = "Sucesso"
-            try: # Obter stats do novo arquivo
+            try:
                 new_info = get_extended_video_info(output_video_path)
-                re_encode_details["new_duration_s"] = new_info["duration_s"]
-                re_encode_details["new_fps"] = new_info["fps"]
-                re_encode_details["new_size_bytes"] = new_info["size_bytes"]
+                re_encode_details.update(new_info)
             except Exception as e_stat:
                 print(f"Aviso: não foi possível obter stats do vídeo recodificado: {e_stat}")
             return True, re_encode_details

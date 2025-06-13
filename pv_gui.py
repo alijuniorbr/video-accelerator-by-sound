@@ -6,7 +6,7 @@ import threading
 import queue
 import os
 import sys
-import shlex
+import shlex # Ainda útil para a lógica geral
 import json
 
 # --- CONFIGURAÇÃO ---
@@ -92,9 +92,7 @@ class App(tk.Tk):
     def save_settings(self):
         """Salva os valores atuais dos widgets em um arquivo JSON."""
         settings_to_save = {key: var.get() for key, var in self.config_vars.items()}
-        # === ADICIONADO: Salva a lista de arquivos de origem ===
         settings_to_save["source_files"] = self.source_files
-        # ====================================================
         try:
             with open(CONFIG_FILE_NAME, 'w') as f:
                 json.dump(settings_to_save, f, indent=2)
@@ -110,21 +108,18 @@ class App(tk.Tk):
                 with open(CONFIG_FILE_NAME, 'r') as f:
                     settings = json.load(f)
                 
-                # Carrega os parâmetros normais
                 for key, var in self.config_vars.items():
                     if key in settings:
                         var.set(settings[key])
                 
-                # === ADICIONADO: Carrega e exibe a lista de arquivos de origem ===
-                self.clear_source_files() # Limpa a lista atual antes de carregar
+                self.clear_source_files()
                 loaded_files = settings.get("source_files", [])
                 for f_path in loaded_files:
-                    if os.path.exists(f_path): # Apenas adiciona se o arquivo ainda existir
+                    if os.path.exists(f_path):
                         self.source_files.append(f_path)
                         self.source_listbox.insert(tk.END, os.path.basename(f_path))
                     else:
                         print(f"Aviso: arquivo de origem salvo '{f_path}' não encontrado. Ignorando.")
-                # =============================================================
 
             except Exception as e:
                 print(f"Não foi possível carregar as configurações, usando padrões. Erro: {e}")
@@ -139,7 +134,6 @@ class App(tk.Tk):
         for key, var in self.config_vars.items():
             if key in defaults:
                 var.set(defaults[key])
-        # Reseta também a lista de arquivos
         self.clear_source_files()
         self.log_message("Parâmetros resetados para os valores padrão.\n")
 
@@ -198,7 +192,6 @@ class App(tk.Tk):
         frame.columnconfigure(1, weight=1)
     
     def create_log_widgets(self, parent):
-        # ... (como antes)
         frame = ttk.LabelFrame(parent, text="Log de Processamento", padding="10")
         frame.pack(fill=tk.BOTH, expand=True, pady=5)
         self.log_text = scrolledtext.ScrolledText(frame, wrap=tk.WORD, height=15, bg="black", fg="limegreen", font=("Consolas", 9))
@@ -206,20 +199,23 @@ class App(tk.Tk):
         self.log_text.config(state='disabled')
 
     def create_action_buttons(self, parent):
-        # ... (como antes)
         frame = ttk.Frame(parent, padding="10")
         frame.pack(fill=tk.X)
+        
         self.start_button = ttk.Button(frame, text="Iniciar Processamento", command=self.start_processing, style="Accent.TButton")
         self.start_button.pack(side=tk.RIGHT, padx=5)
+        
         self.copy_button = ttk.Button(frame, text="Gerar e Copiar Comando", command=self.generate_and_copy_command)
         self.copy_button.pack(side=tk.RIGHT, padx=5)
+        
         self.cancel_button = ttk.Button(frame, text="Cancelar Processo", command=self.cancel_processing)
+        
         ttk.Button(frame, text="Sair", command=self.on_closing).pack(side=tk.LEFT, padx=5)
+        
         style = ttk.Style(self)
         style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"))
-
+    
     def _build_command(self):
-        # ... (como antes)
         if not self.source_files:
             self.log_message("ERRO: Adicione pelo menos um arquivo de origem.\n"); return None
 
@@ -227,14 +223,10 @@ class App(tk.Tk):
         command = [
             python_executable, "-u", PV_PROCESS_SCRIPT_PATH,
             "-s", *self.source_files,
-            "-m", self.min_silence_len_var.get(),
-            "-t", self.silence_thresh_var.get(),
-            "-p", self.speech_padding_start_var.get(),
-            "--speech-padding-end", self.speech_padding_end_var.get(),
-            "-k", self.min_silent_speedup_duration_var.get(),
-            "-v", self.speedup_factor_var.get(),
-            "--chunk-size", self.chunk_size_var.get(),
-            "--fade-duration", self.fade_duration_var.get()
+            "-m", self.min_silence_len_var.get(), "-t", self.silence_thresh_var.get(),
+            "-p", self.speech_padding_start_var.get(), "--speech-padding-end", self.speech_padding_end_var.get(),
+            "-k", self.min_silent_speedup_duration_var.get(), "-v", self.speedup_factor_var.get(),
+            "--chunk-size", self.chunk_size_var.get(), "--fade-duration", self.fade_duration_var.get()
         ]
 
         if self.destination_file_var.get(): command.extend(["-d", self.destination_file_var.get()])
@@ -244,16 +236,30 @@ class App(tk.Tk):
         if self.clean_start_var.get(): command.append("--clean-start")
         return command
 
+    # === FUNÇÃO MODIFICADA PARA SER MULTIPLATAFORMA ===
     def generate_and_copy_command(self):
-        # ... (como antes)
+        """Gera o comando e o copia para a área de transferência, formatando corretamente para o OS."""
         command_list = self._build_command()
-        if not command_list: return
-        command_string = shlex.join(command_list)
-        self.clipboard_clear(); self.clipboard_append(command_string)
-        self.log_message("--- Comando copiado ---\n" + command_string + "\n\n")
+        if not command_list:
+            return
+
+        # Lida com as aspas de forma diferente para Windows vs. Mac/Linux
+        if sys.platform == "win32":
+            # No Windows cmd.exe, aspas duplas são mais seguras para caminhos com espaços.
+            # subprocess.list2cmdline é a forma canônica de fazer isso.
+            command_string = subprocess.list2cmdline(command_list)
+        else:
+            # shlex.join usa aspas simples, ideal para shells baseados em Unix (macOS/Linux).
+            command_string = shlex.join(command_list)
+        
+        self.clipboard_clear()
+        self.clipboard_append(command_string)
+        self.log_message("--- Comando copiado para a Área de Transferência ---\n")
+        self.log_message(command_string + "\n\n")
+        self.log_message("Agora você pode colar e executar este comando em um terminal (com o ambiente virtual 'venv' ativo).\n")
+    # =================================================
 
     def start_processing(self):
-        # ... (como antes)
         command = self._build_command()
         if not command: return
         self.start_button.pack_forget(); self.copy_button.pack_forget()
@@ -263,13 +269,11 @@ class App(tk.Tk):
         self.processing_thread.start()
 
     def cancel_processing(self):
-        # ... (como antes)
         if self.processing_process and self.processing_process.poll() is None:
             self.log_message("\n--- TENTANDO CANCELAR O PROCESSO... ---\n")
             self.processing_process.terminate()
 
     def run_script_worker(self, command):
-        # ... (como antes)
         try:
             self.log_message("--- Iniciando Processamento ---\n")
             startup_info = None
@@ -284,6 +288,7 @@ class App(tk.Tk):
             for line in iter(self.processing_process.stdout.readline, ''): self.log_queue.put(line)
             self.processing_process.stdout.close()
             return_code = self.processing_process.wait()
+            
             if return_code == 0: self.log_queue.put("\n--- Processamento Concluído com Sucesso! ---")
             elif return_code in [-9, -15, 1]: self.log_queue.put("\n--- Processo Cancelado/Interrompido ---")
             else: self.log_queue.put(f"\n--- ERRO: Processo finalizado com código {return_code} ---")
@@ -293,7 +298,6 @@ class App(tk.Tk):
             self.log_queue.put("##PROCESS_FINISHED##")
 
     def process_log_queue(self):
-        # ... (como antes)
         try:
             while not self.log_queue.empty():
                 line = self.log_queue.get_nowait()
@@ -305,27 +309,22 @@ class App(tk.Tk):
         self.after(100, self.process_log_queue)
 
     def log_message(self, message):
-        # ... (como antes)
         self.log_text.config(state='normal'); self.log_text.insert(tk.END, message)
         self.log_text.see(tk.END); self.log_text.config(state='disabled')
     
     def select_source_files(self):
-        # ... (como antes)
         files = filedialog.askopenfilenames(title="Selecione os arquivos de vídeo de origem", filetypes=[("Vídeos", "*.mp4 *.mov *.mkv *.avi"), ("Todos", "*.*")])
         for f in files:
             if f not in self.source_files: self.source_files.append(f); self.source_listbox.insert(tk.END, os.path.basename(f))
     
     def remove_selected_source_files(self):
-        # ... (como antes)
         selected_indices = self.source_listbox.curselection()
         for i in reversed(selected_indices): self.source_listbox.delete(i); del self.source_files[i]
     
     def clear_source_files(self):
-        # ... (como antes)
         self.source_listbox.delete(0, tk.END); self.source_files.clear()
     
     def select_destination_file(self):
-        # ... (como antes)
         file = filedialog.asksaveasfilename(title="Definir arquivo de destino", defaultextension=".mp4", filetypes=[("Vídeo MP4", "*.mp4")])
         if file: self.destination_file_var.set(file)
 
